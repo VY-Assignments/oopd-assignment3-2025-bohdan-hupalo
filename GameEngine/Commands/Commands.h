@@ -1,0 +1,13 @@
+#pragma once
+#include "Command.h"
+#include "MoveLeftCommand.h"
+#include "MoveRightCommand.h"
+#include "RotateCWCommand.h"
+#include "RotateCCWCommand.h"
+#include "SoftDropCommand.h"
+#include "HardDropCommand.h"
+#include "HoldCommand.h"
+#include "PauseCommand.h"
+#include "ResumeCommand.h"
+#include "SaveCommand.h"
+#include "LoadCommand.h"
