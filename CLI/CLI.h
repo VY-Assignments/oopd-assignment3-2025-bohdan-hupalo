@@ -1,5 +1,6 @@
 #pragma once
 #include "../GameEngine/GameEngine.h"
+#include "../GameEngine/IObserver.h"
 #include <string>
 #include <thread>
 #include <mutex>
@@ -22,7 +23,7 @@ constexpr int FPS = 60;
 #define RED     "\033[31m"
 
 
-class CLI {
+class CLI : public IObserver{
     inline static std::mutex console_mutex;
     inline static termios old_term{};
     inline static std::atomic<bool> running{false};
@@ -30,10 +31,14 @@ class CLI {
     inline static std::queue<char> input_queue;
     inline static std::condition_variable input_cv;
 
+    std::atomic<bool> renderFlag{false};
+
     InputHandler& inputHandler;
     ScoreManager& scoreManager;
     GameEngine& gameEngine;
     std::thread input_worker;
+
+    void onStateChanged() override;
 
     static void setTerminalRawBlocking();
     static void restoreTerminal();
@@ -44,6 +49,7 @@ class CLI {
     static bool popKey(char &out);
 
     static std::string getCellChar(Cell cell);
+    static std::vector<std::vector<Cell>> createPreviewGrid(Cell type);
 
     static void clearScreen();
     static int getTerminalWidth();
@@ -52,16 +58,17 @@ class CLI {
 
     void drawBoard() const;
 
-    void startScreen() const;
+    void startScreen();
     void gameOverScreen() const;
     void quittingScreen() const;
     void pausedScreen() const;
     void leaderboardScreen() const;
     void saveScoreScreen() const;
-    void loadGameScreen() const;
+    void loadGameScreen();
 
-    void playLoop() const;
+    void playLoop();
 public:
     CLI();
+    ~CLI() override;
     void run();
 };

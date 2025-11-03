@@ -2,6 +2,8 @@
 #include "../GameEngine/InputHandler.h"
 #include "../GameEngine/ScoreManagement/ScoreManager.h"
 #include "../GameEngine/Board/Cell.h"
+#include "../GameEngine/BlockFactory/BlockFactory.h"
+#include "../GameEngine/Blocks/Block.h"
 
 #include <iostream>
 #include <string>
@@ -24,7 +26,18 @@
 
 CLI::CLI() : inputHandler(InputHandler::getInstance()),
     scoreManager(ScoreManager::getInstance()),
-    gameEngine(GameEngine::getInstance(BOARD_WIDTH, BOARD_HEIGHT, inputHandler, scoreManager)) {}
+    gameEngine(GameEngine::getInstance(BOARD_WIDTH, BOARD_HEIGHT, inputHandler, scoreManager))
+{
+    gameEngine.setObserver(this);
+}
+
+CLI::~CLI() {
+    gameEngine.setObserver(nullptr);
+}
+
+void CLI::onStateChanged() {
+    renderFlag.store(true);
+}
 
 void CLI::setTerminalRawBlocking() {
     if (tcgetattr(STDIN_FILENO, &old_term) == -1) {
@@ -131,7 +144,7 @@ void CLI::run() {
     std::cout << "\nThanks for playing!\n";
 }
 
-void CLI::startScreen() const {
+void CLI::startScreen() {
     clearScreen();
     std::cout << "\n\n\n\n\n";
     print_in_the_center( " _____     _        _        _ ");
@@ -174,7 +187,7 @@ void CLI::startScreen() const {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 }
-void CLI::playLoop() const {
+void CLI::playLoop() {
     auto nextFrameTime = std::chrono::steady_clock::now();
     while (running.load()) {
         char k = '\0';
@@ -204,7 +217,7 @@ void CLI::playLoop() const {
             default: break;
         }
 
-        if (gameEngine.needsRender()) {
+        if (renderFlag.exchange(false)) {
             std::lock_guard lock(console_mutex);
 
             switch (gameEngine.getGameState()) {
@@ -216,7 +229,6 @@ void CLI::playLoop() const {
                     return;
                 default: break;
             }
-            gameEngine.markRender();
         }
         nextFrameTime += std::chrono::microseconds(1000000 / FPS);
         std::this_thread::sleep_until(nextFrameTime);
@@ -428,7 +440,7 @@ void CLI::saveScoreScreen() const {
     scoreManager.saveScore(name);
     leaderboardScreen();
 }
-void CLI::loadGameScreen() const {
+void CLI::loadGameScreen() {
     clearScreen();
 
     inputHandler.handleKey(KeyType::LOAD);
@@ -472,7 +484,21 @@ void CLI::loadGameScreen() const {
 }
 
 
+std::vector<std::vector<Cell>> CLI::createPreviewGrid(Cell type) {
+    auto cells = std::vector(2, std::vector(4, Cell::Empty));
+    if (type == Cell::Empty) {
+        return cells;
+    }
 
+    if (auto block = BlockFactory::createBlock(type)) {
+        for (const auto& pos : block->getGlobalCellsAt({1, 0})) {
+            if (pos.y >= 0 && pos.y < 2 && pos.x >= 0 && pos.x < 4) {
+                cells[pos.y][pos.x] = type;
+            }
+        }
+    }
+    return cells;
+}
 std::string CLI::getCellChar(Cell cell) {
     const auto full_cell = "██";
     const auto ghost_cell = "░░";
@@ -500,12 +526,20 @@ std::string CLI::getCellChar(Cell cell) {
 void CLI::drawBoard() const {
     clearScreen();
 
-    auto grid = gameEngine.getRenderGrid();
-    auto hold_grid = gameEngine.getRenderHold();
-    auto next_grid = gameEngine.getRenderNext();
-    auto score = scoreManager.getScore();
-    auto level = scoreManager.getLevel();
-    auto totalLinesCleared = scoreManager.getTotalLinesCleared();
+    const auto renderData = gameEngine.getRenderData();
+    const auto grid = renderData.grid;
+    const auto score = renderData.score;
+    const auto level = renderData.level;
+    const auto totalLinesCleared = renderData.totalLinesCleared;
+
+    const auto hold_grid = createPreviewGrid(renderData.holdType);
+    std::vector<std::vector<std::vector<Cell>>> next_grids;
+    for (const auto& type : renderData.nextTypes) {
+        next_grids.push_back(createPreviewGrid(type));
+    }
+    while (next_grids.size() < 3) {
+        next_grids.push_back(createPreviewGrid(Cell::Empty));
+    }
 
     int termWidth = getTerminalWidth();
     int boardDisplayWidth = BOARD_WIDTH * 2 + 2;
@@ -553,7 +587,7 @@ void CLI::drawBoard() const {
                 std::cout << " ║";
                 for (int x = 0; x < BOARD_WIDTH; ++x) std::cout << getCellChar(grid[y][x]);
                 std::cout << "║ ";
-                for (int x = 0; x < 4; ++x) std::cout << getCellChar(next_grid[0][i][x]);
+                for (int x = 0; x < 4; ++x) std::cout << getCellChar(next_grids[0][i][x]);
                 std::cout << " ║\n";
                 break;
             }
@@ -573,7 +607,7 @@ void CLI::drawBoard() const {
                 for (int x = 0; x < BOARD_WIDTH; ++x) std::cout << getCellChar(grid[y][x]);
                 std::cout << "║ ";
                 int i = 9 - LINE_INDEX;
-                for (int x = 0; x < 4; ++x) std::cout << getCellChar(next_grid[1][i][x]);
+                for (int x = 0; x < 4; ++x) std::cout << getCellChar(next_grids[1][i][x]);
                 std::cout << " ║\n";
                 break;
             }
@@ -582,7 +616,7 @@ void CLI::drawBoard() const {
                 for (int x = 0; x < BOARD_WIDTH; ++x) std::cout << getCellChar(grid[y][x]);
                 std::cout << "║ ";
                 int i = 9 - LINE_INDEX;
-                for (int x = 0; x < 4; ++x) std::cout << getCellChar(next_grid[1][i][x]);
+                for (int x = 0; x < 4; ++x) std::cout << getCellChar(next_grids[1][i][x]);
                 std::cout << " ║\n";
                 break;
             }
@@ -609,7 +643,7 @@ void CLI::drawBoard() const {
                 for (int x = 0; x < BOARD_WIDTH; ++x) std::cout << getCellChar(grid[y][x]);
                 std::cout << "║ ";
                 int i = 14 - LINE_INDEX;
-                for (int x = 0; x < 4; ++x) std::cout << getCellChar(next_grid[2][i][x]);
+                for (int x = 0; x < 4; ++x) std::cout << getCellChar(next_grids[2][i][x]);
                 std::cout << " ║\n";
                 break;
             }
